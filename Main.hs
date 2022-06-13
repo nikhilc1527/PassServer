@@ -14,32 +14,39 @@ import qualified System.Directory as Dir
 import qualified System.Process as Proc
 import qualified Text.Blaze.Html5 as HTML
 
+import qualified Data.Attoparsec.ByteString as Atto
+
 type ServerData = Int
 default_server_data :: ServerData
 default_server_data = 0
 
-string_to_bs :: String -> BSL.ByteString
-string_to_bs = BSB.toLazyByteString . Data.Foldable.fold . map BSB.char7
+get_until :: Char -> String -> (String, String)
+get_until delim str
+  | length str == 0 = ([], [])
+  | head str == delim = ([], tail str)
+  | True = let (a, b) = get_until delim $ tail str in ((head str):a, b)      
 
-main_handler :: IORef ServerData -> Server.Handler BSL.ByteString
-main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) request 
-  | length url_path > 0 = do
-      file_exists <- Dir.doesFileExist url_path
-      case file_exists of
-        True -> do
-          file <- BSL.fromStrict <$> BS.readFile url_path
-          mime_type <- init <$> Proc.readProcess "xdg-mime" ["query", "filetype", url_path] ""
-          return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType mime_type, Headers.mkHeader Headers.HdrContentLength $ show $ BSL.length file] file
-        False -> do
-          putStrLn $ "cannot access file " ++ url_path
-          return $ Server.Response (4,0,4) "" [Headers.mkHeader Headers.HdrContentLength $ "0"] $ BSL.empty
-  | True = do
-      modifyIORef server_data (+ 1)
-      serve_count <- readIORef server_data
+main_handler :: IORef ServerData -> Server.Handler String
+main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) request@(Server.Request rq_uri rq_method rq_headers rq_body) = 
+  case rq_method of
+    Server.GET -> do
       putStrLn $ show request
-      let content_body = string_to_bs $ "<h1>" ++ (show serve_count) ++ "</h1>"
-      let hdrs = [Headers.mkHeader Headers.HdrContentLength $ show $ BSL.length content_body, Headers.mkHeader Headers.HdrSetCookie "sample_cookie=hello; Max-Age=300"]
-      return $ Server.Response (2,0,0) "" hdrs content_body
+      file <- readFile "index.html"
+      return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length file] file
+    Server.POST -> do -- request has to be of verifying username and password
+      let (_, r1) = get_until '=' rq_body
+      let (username, r2) = get_until '&' r1
+      let (_, r3) = get_until '=' r2
+      let password = r3
+
+      -- hard coding the username and password
+      case (username == "nikhilc" && password == "password") of
+        True -> do
+          success <- readFile "index_success.html"
+          return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length success, Headers.mkHeader Headers.HdrSetCookie "logged_in=true; Max-Age=10"] success -- need to make unique identifiers for each client with individual expiry times
+        False -> do
+          failure <- readFile "index_failure.html"
+          return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length failure] failure
 
 main_configuration :: Server.Config
 main_configuration = Server.Config Log.stdLogger "localhost" 6969
@@ -47,4 +54,4 @@ main_configuration = Server.Config Log.stdLogger "localhost" 6969
 main :: IO ()
 main = do
   server_data <- newIORef default_server_data
-  Server.serverWith main_configuration ((putStrLn . show) >> (main_handler server_data))
+  Server.serverWith main_configuration (main_handler server_data)
