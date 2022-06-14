@@ -54,6 +54,7 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
   let cookie_headers = filter (\hdr -> case hdr of
                                          Headers.Header Headers.HdrCookie _ -> True
                                          _ -> False) rq_headers
+  putStrLn $ "GET REQUEST"
   case length cookie_headers of
     0 -> do
       file <- readFile "index.html"
@@ -73,25 +74,23 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
           -- modifyIORef server_data $ \(ServerData unlog log) -> ServerData (Set.insert sessid unlog) log
           return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length file] file
 
--- POSt
+-- POST
 main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) request@(Server.Request rq_uri Server.POST rq_headers rq_body) = do
   let (_, r1) = get_until '=' rq_body
   let (username, r2) = get_until '&' r1
   let (_, r3) = get_until '=' r2
   let password = r3
 
-  -- hard coding the username and password
+  -- hard coding the username and password (for now)
   case (username == "nikhilc" && password == "password") of
     True -> do
       let Headers.Header Headers.HdrCookie sessid_long = head $ filter (\hdr -> case hdr of
                                                            Headers.Header Headers.HdrCookie _ -> True
                                                            _ -> False) rq_headers
       let sessid = drop 3 $ sessid_long
-      success <- readFile "index_success.html"
       curtime <- Clock.getCurrentTime
-      -- modifyIORef server_data $ \(ServerData unlog log) -> ServerData (Set.delete sessid unlog) (Map.insert sessid curtime log)   
       modifyIORef server_data $ \(ServerData log) -> ServerData $ Map.insert sessid curtime log
-      return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length success] success -- need to make unique identifiers for each client with individual expiry times
+      return $ Server.Response (3,0,1) "" [Headers.mkHeader Headers.HdrContentLength "0", Headers.mkHeader Headers.HdrLocation "/"] ""
     False -> do
       failure <- readFile "index_failure.html"
       return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length failure] failure
