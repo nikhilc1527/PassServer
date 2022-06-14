@@ -23,12 +23,16 @@ max_session_time = Clock.secondsToNominalDiffTime max_session_time_secs
 data ServerData = 
   ServerData 
     {
-      unlogged_in :: Set.Set String,
+      -- unlogged_in :: Set.Set String,
       logged_in :: Map.Map String Clock.UTCTime
     } deriving (Show, Eq)
 
 default_server_data :: ServerData
-default_server_data = ServerData { unlogged_in=Set.empty, logged_in=Map.empty }
+default_server_data = ServerData 
+  { 
+    -- unlogged_in=Set.empty, 
+    logged_in=Map.empty 
+  }
 
 gen_new_sessionid :: IO SessionID
 gen_new_sessionid = do
@@ -54,7 +58,7 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
     0 -> do
       file <- readFile "index.html"
       sessid@(id, gentime) <- gen_new_sessionid
-      modifyIORef server_data $ \(ServerData unlog log) -> let new_unlog = Set.insert id unlog in ServerData new_unlog log
+      -- modifyIORef server_data $ \(ServerData unlog log) -> let new_unlog = Set.insert id unlog in ServerData new_unlog log
       return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length file, Headers.mkHeader Headers.HdrSetCookie $ "id=" ++ id] file
     _ -> do
       let (Headers.Header Headers.HdrCookie sessid_long) = head cookie_headers
@@ -66,7 +70,7 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
           return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length success] success -- need to make unique identifiers for each client with individual expiry times
         Nothing -> do
           file <- readFile "index.html"
-          modifyIORef server_data $ \(ServerData unlog log) -> ServerData (Set.insert sessid unlog) log
+          -- modifyIORef server_data $ \(ServerData unlog log) -> ServerData (Set.insert sessid unlog) log
           return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length file] file
 
 -- POSt
@@ -85,7 +89,8 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
       let sessid = drop 3 $ sessid_long
       success <- readFile "index_success.html"
       curtime <- Clock.getCurrentTime
-      modifyIORef server_data $ \(ServerData unlog log) -> ServerData (Set.delete sessid unlog) (Map.insert sessid curtime log)   
+      -- modifyIORef server_data $ \(ServerData unlog log) -> ServerData (Set.delete sessid unlog) (Map.insert sessid curtime log)   
+      modifyIORef server_data $ \(ServerData log) -> ServerData $ Map.insert sessid curtime log
       return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length success] success -- need to make unique identifiers for each client with individual expiry times
     False -> do
       failure <- readFile "index_failure.html"
