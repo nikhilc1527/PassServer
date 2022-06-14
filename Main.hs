@@ -21,19 +21,10 @@ max_session_time_secs = 60
 max_session_time :: Clock.NominalDiffTime
 max_session_time = Clock.secondsToNominalDiffTime max_session_time_secs
 
-data ServerData = 
-  ServerData 
-    {
-      -- unlogged_in :: Set.Set String,
-      logged_in :: Map.Map String Clock.UTCTime
-    } deriving (Show, Eq)
+data ServerData = ServerData { logged_in :: Map.Map String Clock.UTCTime } deriving (Show, Eq)
 
 default_server_data :: ServerData
-default_server_data = ServerData 
-  { 
-    -- unlogged_in=Set.empty, 
-    logged_in=Map.empty 
-  }
+default_server_data = ServerData { logged_in=Map.empty }
 
 gen_new_sessionid :: IO SessionID
 gen_new_sessionid = do
