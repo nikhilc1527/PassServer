@@ -12,6 +12,7 @@ import qualified Data.Set as Set
 import qualified System.Random as Rand
 import qualified Data.Time.Clock as Clock
 import Data.Fixed
+import Control.Concurrent
 
 type SessionID = (String, Clock.UTCTime)
 
@@ -59,7 +60,6 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
     0 -> do
       file <- readFile "index.html"
       sessid@(id, gentime) <- gen_new_sessionid
-      -- modifyIORef server_data $ \(ServerData unlog log) -> let new_unlog = Set.insert id unlog in ServerData new_unlog log
       return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length file, Headers.mkHeader Headers.HdrSetCookie $ "id=" ++ id] file
     _ -> do
       let (Headers.Header Headers.HdrCookie sessid_long) = head cookie_headers
@@ -71,11 +71,11 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
           return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length success] success -- need to make unique identifiers for each client with individual expiry times
         Nothing -> do
           file <- readFile "index.html"
-          -- modifyIORef server_data $ \(ServerData unlog log) -> ServerData (Set.insert sessid unlog) log
           return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length file] file
 
 -- POST
 main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) request@(Server.Request rq_uri Server.POST rq_headers rq_body) = do
+  -- should probably change this to use attoparsec at some point - meh
   let (_, r1) = get_until '=' rq_body
   let (username, r2) = get_until '&' r1
   let (_, r3) = get_until '=' r2
@@ -88,8 +88,13 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
                                                            Headers.Header Headers.HdrCookie _ -> True
                                                            _ -> False) rq_headers
       let sessid = drop 3 $ sessid_long
-      curtime <- Clock.getCurrentTime
+      curtime <- Clock.getCurrentTime -- fork io here to delete id from map after max session time
       modifyIORef server_data $ \(ServerData log) -> ServerData $ Map.insert sessid curtime log
+      forkIO $ do
+        putStrLn $ "starting thread delay of time: " ++ (show $ (fromEnum $ max_session_time_secs) `div` (10 ^ 6))
+        threadDelay $ (fromEnum $ max_session_time_secs) `div` (10 ^ 6)
+	putStrLn $ "ended thread delay"
+        modifyIORef server_data $ \(ServerData logged) -> ServerData $ Map.delete sessid logged
       return $ Server.Response (3,0,1) "" [Headers.mkHeader Headers.HdrContentLength "0", Headers.mkHeader Headers.HdrLocation "/"] ""
     False -> do
       failure <- readFile "index_failure.html"
