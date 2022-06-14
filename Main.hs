@@ -4,7 +4,7 @@ import qualified Network.HTTP.Server as Server
 import qualified Network.Socket.Internal as Socket
 import qualified Network.URL as URL
 import qualified Network.HTTP.Server.Logger as Log
-import qualified Network.HTTP.Headers as Headers
+import Network.HTTP.Headers as Headers
 import Data.IORef
 import Data.Foldable
 import qualified Data.Map as Map
@@ -17,7 +17,7 @@ import Control.Concurrent
 type SessionID = (String, Clock.UTCTime)
 
 max_session_time_secs :: Pico
-max_session_time_secs = 60
+max_session_time_secs = 5
 max_session_time :: Clock.NominalDiffTime
 max_session_time = Clock.secondsToNominalDiffTime max_session_time_secs
 
@@ -44,24 +44,24 @@ main_handler :: IORef ServerData -> Server.Handler String
 -- GET
 main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) request@(Server.Request rq_uri Server.GET rq_headers rq_body) = do
   let cookie_headers = filter (\hdr -> case hdr of
-                                         Headers.Header Headers.HdrCookie _ -> True
+                                         Header HdrCookie _ -> True
                                          _ -> False) rq_headers
   case length cookie_headers of
     0 -> do
       file <- readFile "index.html"
       sessid@(id, gentime) <- gen_new_sessionid
-      return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length file, Headers.mkHeader Headers.HdrSetCookie $ "id=" ++ id] file
+      return $ Server.Response (2,0,0) "" [mkHeader HdrContentType "text/html", mkHeader HdrContentLength $ show $ length file, mkHeader HdrSetCookie $ "id=" ++ id] file
     _ -> do
-      let (Headers.Header Headers.HdrCookie sessid_long) = head cookie_headers
+      let (Header HdrCookie sessid_long) = head cookie_headers
       let sessid = drop 3 $ sessid_long
       srv_data <- readIORef server_data
       case Map.lookup sessid $ logged_in srv_data of
         Just _ -> do -- LOGGED IN
           success <- readFile "index_success.html"
-          return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length success] success -- need to make unique identifiers for each client with individual expiry times
+          return $ Server.Response (2,0,0) "" [mkHeader HdrContentType "text/html", mkHeader HdrContentLength $ show $ length success] success -- need to make unique identifiers for each client with individual expiry times
         Nothing -> do
           file <- readFile "index.html"
-          return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length file] file
+          return $ Server.Response (2,0,0) "" [mkHeader HdrContentType "text/html", mkHeader HdrContentLength $ show $ length file] file
 
 -- POST
 main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) request@(Server.Request rq_uri Server.POST rq_headers rq_body) = do
@@ -74,8 +74,8 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
   -- hard coding the username and password (for now)
   case (username == "nikhilc" && password == "password") of
     True -> do
-      let Headers.Header Headers.HdrCookie sessid_long = head $ filter (\hdr -> case hdr of
-                                                           Headers.Header Headers.HdrCookie _ -> True
+      let Header HdrCookie sessid_long = head $ filter (\hdr -> case hdr of
+                                                           Header HdrCookie _ -> True
                                                            _ -> False) rq_headers
       let sessid = drop 3 $ sessid_long
       curtime <- Clock.getCurrentTime -- fork io here to delete id from map after max session time
@@ -83,10 +83,10 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
       forkIO $ do
         threadDelay $ (fromEnum $ max_session_time_secs) `div` (10 ^ 6)
         atomicModifyIORef server_data $ \(ServerData logged) -> (ServerData $ Map.delete sessid logged, ())
-      return $ Server.Response (3,0,1) "" [Headers.mkHeader Headers.HdrContentLength "0", Headers.mkHeader Headers.HdrLocation "/"] ""
+      return $ Server.Response (3,0,1) "" [mkHeader HdrContentLength "0", mkHeader HdrLocation "/"] ""
     False -> do
       failure <- readFile "index_failure.html"
-      return $ Server.Response (2,0,0) "" [Headers.mkHeader Headers.HdrContentType "text/html", Headers.mkHeader Headers.HdrContentLength $ show $ length failure] failure
+      return $ Server.Response (2,0,0) "" [mkHeader HdrContentType "text/html", mkHeader HdrContentLength $ show $ length failure] failure
 
 main_configuration :: Server.Config
 main_configuration = Server.Config Log.stdLogger "localhost" 6969
