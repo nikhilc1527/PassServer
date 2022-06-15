@@ -21,6 +21,6 @@ executable pass-server
   main-is:             Main.hs
   -- other-modules:
   extensions: ScopedTypeVariables
-  build-depends:       base >=4.16 && <4.17, http-server, network, url, HTTP, containers, random, time
+  build-depends:       base >=4.16 && <4.17, http-server, network, url, HTTP, containers, random, time, megaparsec
   -- hs-source-dirs:
   default-language:    Haskell2010

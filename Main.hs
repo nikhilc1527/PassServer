@@ -12,7 +12,10 @@ import qualified Data.Set as Set
 import qualified System.Random as Rand
 import qualified Data.Time.Clock as Clock
 import Data.Fixed
+import Data.Void
 import Control.Concurrent
+
+import qualified Text.Megaparsec as Parse
 
 type SessionID = (String, Clock.UTCTime)
 
@@ -21,10 +24,10 @@ max_session_time_secs = 5
 max_session_time :: Clock.NominalDiffTime
 max_session_time = Clock.secondsToNominalDiffTime max_session_time_secs
 
-data ServerData = ServerData { logged_in :: Map.Map String Clock.UTCTime } deriving (Show, Eq)
+data ServerData = ServerData { logged_in :: Map.Map String Clock.UTCTime, passwords :: Map.Map String String } deriving (Show, Eq)
 
 default_server_data :: ServerData
-default_server_data = ServerData { logged_in=Map.empty }
+default_server_data = ServerData { logged_in=Map.empty, passwords=Map.empty }
 
 gen_new_sessionid :: IO SessionID
 gen_new_sessionid = do
@@ -34,11 +37,26 @@ gen_new_sessionid = do
   curtime <- Clock.getCurrentTime
   return $ (id, curtime)
 
-get_until :: Char -> String -> (String, String)
-get_until delim str
-  | length str == 0 = ([], [])
-  | head str == delim = ([], tail str)
-  | True = let (a, b) = get_until delim $ tail str in ((head str):a, b)      
+type Parser = Parse.Parsec Void String
+
+read_password_file :: FilePath -> IO (Map.Map String String)
+read_password_file in_file = do
+  input <- readFile in_file
+  let parser :: Parser [(String, String)] = Parse.many $ do
+       username <- Parse.manyTill (Parse.anySingle) (Parse.single ':')
+       password <- Parse.manyTill (Parse.anySingle) (Parse.single '\n')
+       return $ (username, password)
+  let Right passwords_list = Parse.parse parser "" input
+  let map = Map.fromList passwords_list
+  return $ map
+
+output_passwords_to_file :: FilePath -> Map.Map String String -> IO ()
+output_passwords_to_file filepath passwords_map = do
+  let passwords_list = Map.toList passwords_map
+  writeFile filepath $ concat $ map (\(x, y) -> x ++ ":" ++ y ++ "\n") passwords_list
+  where
+    blend (x:xs) ys = x:(blend ys xs)
+    blend _ _ = []
 
 main_handler :: IORef ServerData -> Server.Handler String
 -- GET
@@ -65,11 +83,14 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
 
 -- POST
 main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) request@(Server.Request rq_uri Server.POST rq_headers rq_body) = do
-  -- should probably change this to use attoparsec at some point - meh
-  let (_, r1) = get_until '=' rq_body
-  let (username, r2) = get_until '&' r1
-  let (_, r3) = get_until '=' r2
-  let password = r3
+  let parser :: Parser (String, String) = do
+       Parse.manyTill (Parse.anySingle) (Parse.single '=')
+       username <- Parse.manyTill (Parse.anySingle) (Parse.single '&')
+       Parse.manyTill (Parse.anySingle) (Parse.single '=')
+       password <- Parse.takeRest
+       return $ (username, password)
+
+  let Right (username, password) = Parse.parse parser "" rq_body
 
   -- hard coding the username and password (for now)
   case (username == "nikhilc" && password == "password") of
@@ -79,10 +100,10 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
                                                            _ -> False) rq_headers
       let sessid = drop 3 $ sessid_long
       curtime <- Clock.getCurrentTime -- fork io here to delete id from map after max session time
-      modifyIORef server_data $ \(ServerData log) -> ServerData $ Map.insert sessid curtime log
+      modifyIORef server_data $ \(ServerData log passwords) -> ServerData (Map.insert sessid curtime log) passwords
       forkIO $ do
         threadDelay $ (fromEnum $ max_session_time_secs) `div` (10 ^ 6)
-        atomicModifyIORef server_data $ \(ServerData logged) -> (ServerData $ Map.delete sessid logged, ())
+        atomicModifyIORef server_data $ \(ServerData logged passwords) -> (ServerData (Map.delete sessid logged) passwords, ())
       return $ Server.Response (3,0,1) "" [mkHeader HdrContentLength "0", mkHeader HdrLocation "/"] ""
     False -> do
       failure <- readFile "index_failure.html"
@@ -93,5 +114,6 @@ main_configuration = Server.Config Log.stdLogger "localhost" 6969
 
 main :: IO ()
 main = do
-  server_data <- newIORef default_server_data
+  passwords_map <- read_password_file "passwords.txt"
+  server_data <- newIORef $ default_server_data { passwords=passwords_map }
   Server.serverWith main_configuration (main_handler server_data)
