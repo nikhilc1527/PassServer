@@ -20,7 +20,7 @@ import qualified Text.Megaparsec as Parse
 type SessionID = (String, Clock.UTCTime)
 
 max_session_time_secs :: Pico
-max_session_time_secs = 5
+max_session_time_secs = 20
 max_session_time :: Clock.NominalDiffTime
 max_session_time = Clock.secondsToNominalDiffTime max_session_time_secs
 
@@ -50,13 +50,12 @@ read_password_file in_file = do
   let map = Map.fromList passwords_list
   return $ map
 
+print_passwords :: Map.Map String String -> String
+print_passwords = concat . map (\(x, y) -> x ++ ":" ++ y ++ "\n") . Map.toList
+
 output_passwords_to_file :: FilePath -> Map.Map String String -> IO ()
 output_passwords_to_file filepath passwords_map = do
-  let passwords_list = Map.toList passwords_map
-  writeFile filepath $ concat $ map (\(x, y) -> x ++ ":" ++ y ++ "\n") passwords_list
-  where
-    blend (x:xs) ys = x:(blend ys xs)
-    blend _ _ = []
+  writeFile filepath $ print_passwords passwords_map
 
 main_handler :: IORef ServerData -> Server.Handler String
 -- GET
@@ -75,11 +74,17 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
       srv_data <- readIORef server_data
       case Map.lookup sessid $ logged_in srv_data of
         Just _ -> do -- LOGGED IN
-          success <- readFile "index_success.html"
+          -- https://stackoverflow.com/questions/688196/how-to-use-a-link-to-call-javascript
+          let passmap = passwords srv_data
+          let pass_str = "<p>\n" ++ (concat $ map process_line $ Map.toList passmap) ++ "</p>"
+          success <- fmap (++ (pass_str)) $ readFile "index_success.html"
           return $ Server.Response (2,0,0) "" [mkHeader HdrContentType "text/html", mkHeader HdrContentLength $ show $ length success] success -- need to make unique identifiers for each client with individual expiry times
         Nothing -> do
           file <- readFile "index.html"
           return $ Server.Response (2,0,0) "" [mkHeader HdrContentType "text/html", mkHeader HdrContentLength $ show $ length file] file
+  where
+    process_line :: (String, String) -> String
+    process_line (username, pass) = "<a href=\"/\" onclick=\"func(&quot;" ++ pass ++ "&quot;); return true;\">" ++ username ++ "</a><br>"
 
 -- POST
 main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) request@(Server.Request rq_uri Server.POST rq_headers rq_body) = do
