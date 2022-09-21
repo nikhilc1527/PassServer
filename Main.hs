@@ -117,12 +117,9 @@ main_handler server_data sockaddr url@(URL.URL url_type url_path url_params) req
 
   let Right (username, password) = Parse.parse parser "" rq_body
 
-  putStrLn $ "got username: " ++ username ++ " and password: " ++ password
-
   -- hard coding the username and password (for now)
   decrypt_res <- check_decrypt password
-  -- case (username == "nikhilc" && password == "password") of
-  putStrLn $ "checked decryption of passwords, got: " ++ (show decrypt_res)
+
   case decrypt_res of
     Just _ -> do
       let Header HdrCookie sessid_long = head $ filter (\hdr -> case hdr of
